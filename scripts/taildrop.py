@@ -4,32 +4,42 @@ import grp
 import getpass
 import subprocess
 import sys
+import tkinter as tk
+from typing import Tuple
 
 class ec:
     NONE=0
-    MISSING_OPTION=1
-    INVALID_OPTION=2
+    MISSING_PARAMETER=1
+    INVALID_PARAMETER=2
     OPERATOR_SET_FAIL=3
     NON_OPERATOR_RECEIVE_FAIL=4
     RECEIVE_FAIL=5
+    EMPTY_FILELIST=6
+    NOTHING_SELECTED=7
+    STATUS_FAIL=8
 
 def print_error(code):
     if code == ec.NONE:
         return
     print(f"[{int(code)}] ", end="")
-    if code == ec.MISSING_OPTION:
-        print("Missing option!")
+    if code == ec.MISSING_PARAMETER:
+        print("Missing parameter!")
         print_usage()
-    elif code == ec.INVALID_OPTION:
-        print("Invalid option!")
+    elif code == ec.INVALID_PARAMETER:
+        print("Invalid parameter!")
         print_usage()
     elif code == ec.OPERATOR_SET_FAIL:
-        print("Failed to set current user as operator! Aborting ...")
+        print("Failed to set current user as operator!")
     elif code == ec.NON_OPERATOR_RECEIVE_FAIL:
-        print("Failed to initate non-operator receive! Aborting ...")
+        print("Failed to initate non-operator receive!")
     elif code == ec.RECEIVE_FAIL:
-        print("Failed to receive! Aborting ...")
-    
+        print("Failed to receive!")
+    elif code == ec.EMPTY_FILELIST:
+        print("No files selected!")
+    elif code == ec.NOTHING_SELECTED:
+        print("No device selected!")
+    elif code == ec.STATUS_FAIL:
+        print("Failed to get tailscale status!") 
 
 def print_usage():
     print("Usage:")
@@ -55,38 +65,120 @@ def can_use_tailscale() -> bool:
     except Exception:
         return False
 
-def cmd_run(cmd) -> bool:
+def cmd_run(cmd):
     r = True
+    e = ''
+    o = ''
     try:
         print(f"Trying to execute \'{' '.join(cmd)}\'")
         sp = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        e = sp.stderr.decode("utf-8")
+        if e != '':
+            print("Error:")
+            print(e)
+            r = False
+
+        o = sp.stdout.decode("utf-8")
+        if o != '':
+            print("Output:")
+            print(o)
     except Exception:
         print(f"Exception occured during executing \'{' '.join(cmd)}\'")
         r = False    
     
-    e = sp.stderr.decode("utf-8")
-    if e != '':
-        print("Error:")
-        print(e)
-        r = False
-
-    o = sp.stdout.decode("utf-8")
-    if o != '':
-        print("Output:")
-        print(o)
     #todo: test this
-    return r
+    return r, o
+
+def show_checkboxes(title, options) -> list:
+    root = tk.Tk()
+    root.title(title)
+
+    vars = []
+    for opt in options:
+        var = tk.BooleanVar()
+        chk = tk.Checkbutton(root, text=opt, variable=var)
+        chk.pack(anchor="w")
+        vars.append((opt, var))
+
+    selected = []
+
+    def select_all():
+        for _, var in vars:
+            var.set(True)
+
+    def clear_all():
+        for _, var in vars:
+            var.set(False)
+
+    def submit():
+        nonlocal selected
+        selected = [opt for opt, var in vars if var.get()]
+        root.destroy()
+
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(pady=5)
+
+    tk.Button(btn_frame, text="Select All", command=select_all).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Clear All", command=clear_all).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Apply selection", command=submit).pack(side="left", padx=5)
+
+    root.mainloop()
+    return selected
+
+def show_radiobuttons(title, options) -> str:
+    root = tk.Tk()
+    root.title(title)
+
+    selected_var = tk.StringVar(value="")
+
+    for opt in options:
+        rb = tk.Radiobutton(root, text=opt, variable=selected_var, value=opt)
+        rb.pack(anchor="w")
+
+    def submit():
+        root.destroy()
+
+    btn = tk.Button(root, text="Select", command=submit)
+    btn.pack(pady=5)
+
+    root.mainloop()
+    return selected_var.get().strip() + ":"
+
+def select_device() -> str:
+    cmd = ["tailscale", "status"]
+    r, output = cmd_run(cmd)
+    if not r or output == '':
+        code = ec.STATUS_FAIL
+    
+    lines = output.strip().splitlines()
+    devices = []
+    for line in lines[1:]:  # skip header line
+        parts = line.split()
+        if len(parts) >= 2:
+            hostname = parts[1]
+            status_info = " ".join(parts[3:])
+            # Simple filter: only include if "active" or "idle"
+            if "active" in status_info or "idle" in status_info:
+                devices.append(hostname)
+
+    if not devices:
+        print("No online devices found.")
+        return []
+
+    # Show selection window
+    selected = show_radiobuttons("Select device", devices)
+    return selected
 
 def main():
     code = ec.NONE
 
     if len(sys.argv) < 3:
-        code = ec.MISSING_OPTION
+        code = ec.MISSING_PARAMETER
     else:
         option = sys.argv[1]
         dir = sys.argv[2]
         if str(option) not in ("-r", "-s"):
-            code = ec.INVALID_OPTION
+            code = ec.INVALID_PARAMETER
         # RECEIVE
         elif option == "-r" and os.path.isdir(dir):
             if not can_use_tailscale():
@@ -112,19 +204,25 @@ def main():
                     code = ec.RECEIVE_FAIL
         # SEND
         elif option == "-s" and os.path.isdir(dir):
-            print("Discovering files ...")
+            print("Reading files ...")
             files = []
             for root, _, filenames in os.walk(dir):
                 for f in filenames:
-                    files.append(os.path.join(root, f))
-            print(f"{str(len(files))} will be sent")
-            
-            
-
-
+                    files.append(f)
+            selected_files = show_checkboxes("Select files", files)
+            if selected_files == []:
+                code = ec.EMPTY_FILELIST
+            else:
+                formatted_filelist = ["'"+ file + "'" for file in selected_files]
+                device = select_device()
+                if device == "":
+                    code = ec.NOTHING_SELECTED
+                else:    
+                    cmd = ["tailscale", "file", "cp", "--verbose"]
+                    cmd.extend(formatted_filelist)
+                    cmd.append(device)
+                    print(" ".join(cmd))
     return code
-
-
 
 
 if __name__ == "__main__":
