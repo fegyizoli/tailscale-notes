@@ -46,25 +46,6 @@ def print_usage():
     print(f"receive files in directory:  python3 {str(sys.argv[0])} -r <path to directory>")
     print(f"send files to target device: python3 {str(sys.argv[0])} -s <path to directory> [<target device name>]")
 
-def can_use_tailscale() -> bool:
-    user = getpass.getuser()
-    # current user is root
-    if os.geteuid() == 0:
-        return True
-    # current user is in tailscale group
-    try:
-        groups = [g.gr_name for g in grp.getgrall() if user in g.gr_name]
-        if "tailscale" in groups:
-            return True
-    except Exception:
-        pass
-    # current user can run a harmless tailscale command -> already an operator
-    try:
-        subprocess.run(["tailscale", "status"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except Exception:
-        return False
-
 def cmd_run(cmd):
     r = True
     e = ''
@@ -89,9 +70,30 @@ def cmd_run(cmd):
     #todo: test this
     return r, o
 
+def can_use_tailscale() -> bool:
+    user = getpass.getuser()
+    # current user is root
+    if os.geteuid() == 0:
+        return True
+    # current user is in tailscale group
+    try:
+        groups = [g.gr_name for g in grp.getgrall() if user in g.gr_name]
+        if "tailscale" in groups:
+            return True
+    except Exception:
+        pass
+    # current user can run a harmless tailscale command -> already an operator
+    try:
+        subprocess.run(["tailscale", "status"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+
 def show_checkboxes(title, options) -> list:
     root = tk.Tk()
     root.title(title)
+
+    root.minsize(width=400, height=0)
 
     vars = []
     for opt in options:
@@ -128,6 +130,8 @@ def show_checkboxes(title, options) -> list:
 def show_radiobuttons(title, options) -> str:
     root = tk.Tk()
     root.title(title)
+
+    root.minsize(width=400, height=0)
 
     selected_var = tk.StringVar(value="")
 
@@ -223,7 +227,6 @@ def main():
                     cmd.append(device)
                     print(" ".join(cmd))
     return code
-
 
 if __name__ == "__main__":
     code = main()
