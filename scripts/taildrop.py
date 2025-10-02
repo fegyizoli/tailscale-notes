@@ -1,7 +1,14 @@
 #!/bin/python3
 import os
-import grp
-import getpass
+import platform
+
+try:
+    import grp
+    import getpass
+    ON_WIN = False
+except ModuleNotFoundError:
+    ON_WIN = True
+
 import subprocess
 import sys
 import tkinter as tk
@@ -70,24 +77,28 @@ def cmd_run(cmd):
     #todo: test this
     return r, o
 
-def can_use_tailscale() -> bool:
-    user = getpass.getuser()
-    # current user is root
-    if os.geteuid() == 0:
-        return True
-    # current user is in tailscale group
-    try:
-        groups = [g.gr_name for g in grp.getgrall() if user in g.gr_name]
-        if "tailscale" in groups:
+def can_use_tailscale(on_windows) -> bool:
+    if not on_windows:
+        user = getpass.getuser()
+        # current user is root
+        if os.geteuid() == 0:
             return True
-    except Exception:
-        pass
-    # current user can run a harmless tailscale command -> already an operator
+        # current user is in tailscale group
+        try:
+            groups = [g.gr_name for g in grp.getgrall() if user in g.gr_name]
+            if "tailscale" in groups:
+                return True
+        except Exception:
+            pass
+        # current user can run a harmless tailscale command -> already an operator
+    else:
+        print("Hello windows!")
     try:
         subprocess.run(["tailscale", "status"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception:
         return False
+
 
 def show_checkboxes(title, options) -> list:
     root = tk.Tk()
@@ -185,7 +196,7 @@ def main():
             code = ec.INVALID_PARAMETER
         # RECEIVE
         elif option == "-r" and os.path.isdir(dir):
-            if not can_use_tailscale():
+            if not can_use_tailscale(ON_WIN):
                 print("Operators can use \'tailscale file get\' without sudo which this option use under the hood.")
                 print("Choose no and every time the script executes \'tailscale file get\' it'll do it with sudo.")
                 print(f"Set the current user \'{os.environ['USER']}\' as an operator?")
