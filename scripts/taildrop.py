@@ -60,9 +60,10 @@ class ec:
     OPERATOR_SET_FAIL=3
     NON_OPERATOR_RECEIVE_FAIL=4
     RECEIVE_FAIL=5
-    EMPTY_FILELIST=6
-    NOTHING_SELECTED=7
-    STATUS_FAIL=8
+    SEND_FAIL=6
+    EMPTY_FILELIST=7
+    NOTHING_SELECTED=8
+    STATUS_FAIL=9
 
 def print_error(code):
     if code == ec.NONE:
@@ -80,6 +81,8 @@ def print_error(code):
         print("Failed to initate non-operator receive!")
     elif code == ec.RECEIVE_FAIL:
         print("Failed to receive!")
+    elif code == ec.SEND_FAIL:
+        print("Failed to send!")
     elif code == ec.EMPTY_FILELIST:
         print("No files selected!")
     elif code == ec.NOTHING_SELECTED:
@@ -92,7 +95,7 @@ def print_usage():
     print(f"receive files in directory:  python3 {str(sys.argv[0])} -r <path to directory>")
     print(f"send files to target device: python3 {str(sys.argv[0])} -s <path to directory> [<target device name>]")
 
-def cmd_run(cmd):
+def cmd_run(cmd, bypass=False):
     r = True
     e = ''
     o = ''
@@ -101,9 +104,11 @@ def cmd_run(cmd):
         sp = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         e = sp.stderr.decode("utf-8")
         if e != '':
-            print("Error:")
+            if not bypass:
+                r = False
+                print("Error:")
+            # tailscale outputs to stderr
             print(e)
-            r = False
 
         o = sp.stdout.decode("utf-8")
         if o != '':
@@ -210,7 +215,7 @@ def select_device() -> str:
 
     # Show selection window
     selected = show_choices("Select device", devices, multiple=False)
-    return selected
+    return selected[0] + ":"
 
 def main():
     code = ec.NONE
@@ -219,7 +224,7 @@ def main():
         code = ec.MISSING_PARAMETER
     else:
         option = sys.argv[1]
-        dir = sys.argv[2]
+        dir = sys.argv[2].replace('\\', '/')
         if str(option) not in ("-r", "-s"):
             code = ec.INVALID_PARAMETER
         # RECEIVE
@@ -247,24 +252,24 @@ def main():
                     code = ec.RECEIVE_FAIL
         # SEND
         elif option == "-s" and os.path.isdir(dir):
-            print("Reading files ...")
             files = []
             for root, _, filenames in os.walk(dir):
                 for f in filenames:
-                    files.append(f)
-            selected_files = show_choises("Select files", files)
+                    files.append(os.path.join(root,f).replace('\\', '/'))
+            selected_files = show_choices("Select files", files)
             if selected_files == []:
                 code = ec.EMPTY_FILELIST
             else:
-                formatted_filelist = ["'"+ file + "'" for file in selected_files]
+
                 device = select_device()
                 if device == "":
                     code = ec.NOTHING_SELECTED
                 else:    
                     cmd = ["tailscale", "file", "cp", "--verbose"]
-                    cmd.extend(formatted_filelist)
+                    cmd.extend(selected_files)
                     cmd.append(device)
-                    print(" ".join(cmd))
+                    if not cmd_run(cmd, bypass=True):
+                        code = ec.SEND_FAIL
     return code
 
 if __name__ == "__main__":
