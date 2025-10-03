@@ -11,8 +11,47 @@ except ModuleNotFoundError:
 
 import subprocess
 import sys
-import tkinter as tk
 from typing import Tuple
+
+# multiplatform key handlers
+if ON_WIN:
+    import msvcrt
+
+    def getkey():
+        key = msvcrt.getch()
+        if key == b'\xe0': # special key prefix
+            key2 = msvcrt.getch()
+            if key2 == b'H': return "UP"
+            elif key2 == b'P': return "DOWN"
+            else: return None
+        elif key == b' ': return "SPACE"
+        elif key == b'\r': return "ENTER"
+        elif key == b'\x1b': return "ESC"
+        elif key.lower() == b'a': return "ALL"
+        elif key.lower() == b'n': return "NONE"
+        else: return None
+
+else: # linux / macosx
+    import tty, termios
+
+    def getkey():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+            if ch == '\x1b': # escape sequence
+                seq = sys.stdin.read(2)
+                if seq == '[A': return "UP"
+                elif seq == '[B': return "DOWN"
+                else: return "ESC"
+            elif ch == ' ': return "SPACE"
+            elif ch == '\r' or ch == '\n': return "ENTER"
+            elif ch.lower() == 'a': return "ALL"
+            elif ch.lower() == 'n': return "NONE"
+            else: return None
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 class ec:
     NONE=0
@@ -99,65 +138,54 @@ def can_use_tailscale(on_windows) -> bool:
     except Exception:
         return False
 
+def show_choices(title, options, multiple=True) -> list:
+    """
+    Interactive choices menu.
 
-def show_checkboxes(title, options) -> list:
-    root = tk.Tk()
-    root.title(title)
+    """
+    selected = [False] * len(options)
+    current = 0
 
-    root.minsize(width=400, height=0)
+    while True:
+        os.system("cls" if ON_WIN else "clear")
+        print(title)
+        if multiple:
+            nav_help = "move: ↑↓ | toggle: SPACE | all: a | none: n | confirm: ENTER | cancel: ESC "
+        else:
+            nav_help = "move: ↑↓ | select: ENTER | cancel: ESC "
+        print("-" * len(nav_help))
+        print(nav_help)
+        print("-" * len(nav_help))
 
-    vars = []
-    for opt in options:
-        var = tk.BooleanVar()
-        chk = tk.Checkbutton(root, text=opt, variable=var)
-        chk.pack(anchor="w")
-        vars.append((opt, var))
+        # render
+        for i, option in enumerate(options):
+            prefix = "> " if i == current else "  "
+            if multiple:
+                checkbox = "[x]" if selected[i] else "[ ]"
+                print(f"{prefix}{checkbox} {option}")
+            else:
+                print(f"{prefix}{option}")
 
-    selected = []
+        key = getkey()
+        if key == "UP":
+            current = (current - 1) % len(options)
+        elif key == "DOWN":
+            current = (current + 1) % len(options)
+        elif multiple and key == "SPACE":
+            selected[current] = not selected[current]
+        elif multiple and key == "ALL":
+            selected = [True] * len(options)
+        elif multiple and key == "NONE":
+            selected = [False] * len(options)
+        elif key == "ESC":
+            print("Cancelled selection!")
+            return []
+        elif key == "ENTER":
+            if not multiple:
+                selected[current] = not selected[current]
+            break
 
-    def select_all():
-        for _, var in vars:
-            var.set(True)
-
-    def clear_all():
-        for _, var in vars:
-            var.set(False)
-
-    def submit():
-        nonlocal selected
-        selected = [opt for opt, var in vars if var.get()]
-        root.destroy()
-
-    btn_frame = tk.Frame(root)
-    btn_frame.pack(pady=5)
-
-    tk.Button(btn_frame, text="Select All", command=select_all).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Clear All", command=clear_all).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Apply selection", command=submit).pack(side="left", padx=5)
-
-    root.mainloop()
-    return selected
-
-def show_radiobuttons(title, options) -> str:
-    root = tk.Tk()
-    root.title(title)
-
-    root.minsize(width=400, height=0)
-
-    selected_var = tk.StringVar(value="")
-
-    for opt in options:
-        rb = tk.Radiobutton(root, text=opt, variable=selected_var, value=opt)
-        rb.pack(anchor="w")
-
-    def submit():
-        root.destroy()
-
-    btn = tk.Button(root, text="Select", command=submit)
-    btn.pack(pady=5)
-
-    root.mainloop()
-    return selected_var.get().strip() + ":"
+    return [opt for opt, sel in zip(options, selected) if sel]
 
 def select_device() -> str:
     cmd = ["tailscale", "status"]
@@ -181,7 +209,7 @@ def select_device() -> str:
         return []
 
     # Show selection window
-    selected = show_radiobuttons("Select device", devices)
+    selected = show_choices("Select device", devices, multiple=False)
     return selected
 
 def main():
@@ -224,7 +252,7 @@ def main():
             for root, _, filenames in os.walk(dir):
                 for f in filenames:
                     files.append(f)
-            selected_files = show_checkboxes("Select files", files)
+            selected_files = show_choises("Select files", files)
             if selected_files == []:
                 code = ec.EMPTY_FILELIST
             else:
