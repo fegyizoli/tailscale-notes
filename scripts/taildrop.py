@@ -227,7 +227,7 @@ def main():
         dir = sys.argv[2].replace('\\', '/')
         if str(option) not in ("-r", "-s"):
             code = ec.INVALID_PARAMETER
-        # RECEIVE
+        # RECEIVE --------------------------------------------------
         elif option == "-r" and os.path.isdir(dir):
             if not can_use_tailscale(ON_WIN):
                 print("Operators can use \'tailscale file get\' without sudo which this option use under the hood.")
@@ -250,7 +250,16 @@ def main():
                 print("Receiving...")
                 if not cmd_run(cmd):
                     code = ec.RECEIVE_FAIL
-        # SEND
+                elif ON_WIN:
+                    # on windows all files received into the user's Download/Tailscale directory
+                    for root, _, filenames in os.walk(dir):
+                        for f in filenames:
+                            files.append(os.path.join(root,f))
+                    selected_files = show_choices(f"Select files to copy to \'{dir}\'", files)
+                    if selected_files == []:
+                        code = ec.EMPTY_FILELIST
+
+        # SEND --------------------------------------------------
         elif option == "-s" and os.path.isdir(dir):
             files = []
             for root, _, filenames in os.walk(dir):
@@ -260,7 +269,6 @@ def main():
             if selected_files == []:
                 code = ec.EMPTY_FILELIST
             else:
-
                 device = select_device()
                 if device == "":
                     code = ec.NOTHING_SELECTED
