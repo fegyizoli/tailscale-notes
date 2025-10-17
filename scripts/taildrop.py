@@ -78,7 +78,7 @@ def print_error(code):
     elif code == ec.OPERATOR_SET_FAIL:
         print("Failed to set current user as operator!")
     elif code == ec.NON_OPERATOR_RECEIVE_FAIL:
-        print("Failed to initate non-operator receive!")
+        print("Failed to initiate non-operator receive!")
     elif code == ec.RECEIVE_FAIL:
         print("Failed to receive!")
     elif code == ec.SEND_FAIL:
@@ -88,7 +88,7 @@ def print_error(code):
     elif code == ec.NOTHING_SELECTED:
         print("No device selected!")
     elif code == ec.STATUS_FAIL:
-        print("Failed to get tailscale status!") 
+        print("Failed to get tailscale status!")
 
 def print_usage():
     print("Usage:")
@@ -116,9 +116,7 @@ def cmd_run(cmd, bypass=False):
             print(o)
     except Exception:
         print(f"Exception occured during executing \'{' '.join(cmd)}\'")
-        r = False    
-    
-    #todo: test this
+        r = False
     return r, o
 
 def can_use_tailscale(on_windows) -> bool:
@@ -148,6 +146,10 @@ def show_choices(title, options, multiple=True) -> list:
     Interactive choices menu.
 
     """
+    # todo: check for empty options list
+    # return options
+    # todo: options list length 1, multiple=True,
+    # overwrite multiple=False and proceed
     selected = [False] * len(options)
     current = 0
 
@@ -197,7 +199,7 @@ def select_device() -> str:
     r, output = cmd_run(cmd)
     if not r or output == '':
         code = ec.STATUS_FAIL
-    
+
     lines = output.strip().splitlines()
     devices = []
     for line in lines[1:]:  # skip header line
@@ -240,7 +242,7 @@ def main():
                     cmd = ["sudo", "tailscale", "set", "--operator=$USER"]
                     if not cmd_run(cmd):
                         code = ec.OPERATOR_SET_FAIL
-                
+
                 if code != ec.OPERATOR_SET_FAIL:
                     print("Receiving...")
                     if not cmd_run(cmd):
@@ -272,7 +274,7 @@ def main():
                 device = select_device()
                 if device == "":
                     code = ec.NOTHING_SELECTED
-                else:    
+                else:
                     cmd = ["tailscale", "file", "cp", "--verbose"]
                     cmd.extend(selected_files)
                     cmd.append(device)
